@@ -106,6 +106,7 @@ async def test_model_failure_becomes_error_iteration_and_retry_works(env):
         it1 = await wait_ready(box, "hermes", ack["iteration_id"])
         sub = await box.submit("hermes", {"schema_version": "1.0.0", "initiative_id": ack["initiative_id"], "base_iteration": it1["iteration_id"],
                                            "idempotency_key": "s", "outcomes": [], "iterate": True})
+        await env.sleep(dt.timedelta(minutes=1))   # паузы между повторами модели проматываются, а не ждутся
         bad = await wait_ready(box, "hermes", sub["iteration_id"], tries=400)
         assert bad["status"] == "error" and bad["error"]["code"] == "model_failed" and len(producer.calls) == 4
         # повтор — submit(iterate:true) от ошибочной итерации
