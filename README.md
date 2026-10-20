@@ -52,6 +52,26 @@ BOX_TOKEN=<токен hermes из BOX_TOKENS> python scripts/smoke.py   # бри
 - красная несколько итераций подряд на проработке → «Нужен PO» с указанием `decide`;
 - сбой модели после 3 попыток → итерация со статусом `error`, указания прошлой итерации остаются в силе.
 
+## Мониторинг (Grafana)
+
+`box-mcp` отдаёт `GET /metrics` (состояние инициатив из Postgres в момент опроса: состояния, итерации, светофор по проверкам,
+указания, зависшие итерации), `box-worker` — `:9101/metrics` (время и исходы вызовов модели). Порты — на `127.0.0.1`
+(`BOX_BIND`). Метки — только перечислимые значения: ни целей, ни id инициатив, ни текстов в метриках нет.
+Дашборд «Коробка БФТ» и три алерта (нет метрик 5 мин, итерация готовится > 15 мин, > 2 сбоев модели за 15 мин) лежат в
+[poh-observability](https://github.com/po-helper-org/poh-observability) (`grafana/dashboards/bft-box.json`, группа правил «Коробка БФТ»),
+сбор — job `bft-box` в `collector/config.yaml`.
+
+| Метрика | Что показывает |
+|---|---|
+| `bft_box_initiatives{state}` | воронка: инициативы по состояниям |
+| `bft_box_waiting_po` | инициативы с неотвеченным указанием к PO |
+| `bft_box_iterations_total{trigger,status}` | итерации по причине начала и исходу (`ready` / `error` / `preparing`) |
+| `bft_box_oldest_preparing_seconds` | возраст самой долгой готовящейся итерации (зависание) |
+| `bft_box_checks{check,status}` | светофор последних итераций по проверкам каталога |
+| `bft_box_checks_downgraded` | зелёные, которые код понизил: модель завысила |
+| `bft_box_directives{kind,state}` | невыполненные указания, в том числе `overdue` |
+| `bft_box_llm_calls_total{outcome}`, `bft_box_llm_seconds` | вызовы модели: исход и время |
+
 ## Протокол
 
 MCP-инструменты `start`, `submit`, `get` (json или markdown), `status`, `control` (`pause`, `resume`, `cancel`,
@@ -66,7 +86,7 @@ MCP-инструменты `start`, `submit`, `get` (json или markdown), `sta
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest                      # 22 теста: 28 эталонов контракта, проверки качества, воркфлоу на тестовом Temporal
+pytest                      # 27 тестов: 28 эталонов контракта, проверки качества, воркфлоу на тестовом Temporal
 ```
 
 ## Ограничения (честно)

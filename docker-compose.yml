@@ -66,6 +66,7 @@ services:
   box-worker:
     <<: *box
     command: ["python", "-m", "bftbox.worker"]
+    ports: ["${BOX_BIND:-127.0.0.1}:9101:9101"]   # метрики вызовов модели (коллектор → Grafana)
     mem_limit: 256m
 
   box-mcp:
