@@ -130,6 +130,18 @@ def build_app() -> FastMCP:
         body = await request.json()
         return await api(request, lambda o, b: b.control(o, body))
 
+    @mcp.custom_route("/metrics", methods=["GET"])
+    async def metrics(request: Request):
+        """Метрики состояния для коллектора (без токена: только счётчики по перечислимым значениям, порт — на 127.0.0.1)."""
+        from starlette.responses import Response
+        from .metrics import render, store_registry
+        try:
+            body = render(store_registry(PgStore(config.DATABASE_URL)))
+        except Exception:  # noqa: BLE001
+            log.exception("метрики")
+            return Response("хранилище недоступно", status_code=503)
+        return Response(body, media_type="text/plain; version=0.0.4")
+
     @mcp.custom_route("/health", methods=["GET"])
     async def health(request: Request):
         return JSONResponse({"ok": True})

@@ -5,6 +5,7 @@ import asyncio
 import concurrent.futures
 import logging
 
+from prometheus_client import start_http_server
 from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
@@ -12,6 +13,7 @@ from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxR
 from . import config
 from .activities import Activities
 from .llm import OpenAIProducer
+from .metrics import WORKER_REGISTRY, timed
 from .store import PgStore
 from .workflow import InitiativeWorkflow
 
@@ -35,8 +37,9 @@ async def main():
         except Exception as e:  # noqa: BLE001
             logging.warning("Postgres не готов (%s), повтор", e)
             await asyncio.sleep(2)
+    start_http_server(int(config.env("METRICS_PORT", "9101")), registry=WORKER_REGISTRY)   # время и исходы вызовов модели
     client = await Client.connect(config.TEMPORAL_ADDRESS, namespace=config.TEMPORAL_NAMESPACE)
-    await build_worker(client, OpenAIProducer(), store).run()
+    await build_worker(client, timed(OpenAIProducer()), store).run()
 
 
 if __name__ == "__main__":

@@ -47,6 +47,30 @@ class MemoryStore:
         ini = self.ini.get(initiative_id)
         return self.its.get(ini["latest_iteration_id"]) if ini else None
 
+    def stats(self, now=None):
+        import collections
+        import datetime as dt
+        now = now or dt.datetime.now(dt.timezone.utc)
+        out = {"initiatives": collections.Counter(i["state"] for i in self.ini.values()),
+               "iterations": collections.Counter((it["trigger"], it["status"]) for it in self.its.values()),
+               "checks": collections.Counter(), "directives": collections.Counter(), "downgraded": 0}
+        prep = [it for it in self.its.values() if it["status"] == "preparing"]
+        out["preparing"] = len(prep)
+        out["oldest_preparing_seconds"] = max([(now - dt.datetime.strptime(it["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+                                                .replace(tzinfo=dt.timezone.utc)).total_seconds() for it in prep], default=0)
+        out["po_waiting"] = 0
+        for i in self.ini.values():
+            latest = self.its.get(i["latest_iteration_id"]) or {}
+            if i["state"] not in ("accepted", "cancelled", "paused") and any(
+                    d["to"]["role"] == "po" and d["state"] in ("open", "overdue") for d in latest.get("directives") or []):
+                out["po_waiting"] += 1   # у инициативы есть указание к PO, на которое он ещё не ответил
+            for c in latest.get("checks") or []:
+                out["checks"][(c["id"], c["status"])] += 1
+                out["downgraded"] += "[код:" in c["evidence"]
+            for d in (latest.get("directives") or []) if i["state"] not in ("accepted", "cancelled") else []:
+                out["directives"][(d["kind"], d["state"])] += 1   # у принятой и отменённой указаний уже не ждут
+        return out
+
     def claim_start(self, owner, key, body_hash, initiative_id):
         """Первый вызов с ключом записывается, повтор получает записанное (хэш тела, id инициативы)."""
         with self.lock:
@@ -115,3 +139,32 @@ class PgStore:
                       "on conflict do nothing", (owner, key, body_hash, initiative_id))
             row = c.execute("select body_hash, initiative_id from start_keys where owner=%s and key=%s", (owner, key)).fetchone()
         return tuple(row)
+
+    LATEST = "from iterations it join initiatives i on it.iteration_id = i.latest_iteration_id"
+
+    def stats(self):
+        """Агрегаты для метрик: одним соединением, без текстов и id — только счётчики по перечислимым значениям."""
+        with self._conn() as c:
+            ini = dict(c.execute("select state, count(*) from initiatives group by state").fetchall())
+            its = {(t, st): n for t, st, n in c.execute(
+                "select body->>'trigger', body->>'status', count(*) from iterations group by 1, 2").fetchall()}
+            prep, oldest = c.execute(
+                "select count(*), coalesce(extract(epoch from now() - min((body->>'created_at')::timestamptz)), 0) "
+                "from iterations where body->>'status' = 'preparing'").fetchone()
+            checks = {(k, st): n for k, st, n in c.execute(
+                f"select ck->>'id', ck->>'status', count(*) {self.LATEST}, "
+                "jsonb_array_elements(coalesce(it.body->'checks', '[]'::jsonb)) ck group by 1, 2").fetchall()}
+            down = c.execute(
+                f"select count(*) {self.LATEST}, jsonb_array_elements(coalesce(it.body->'checks', '[]'::jsonb)) ck "
+                "where ck->>'evidence' like '%[код:%'").fetchone()[0]
+            po_waiting = c.execute(
+                f"select count(distinct i.initiative_id) {self.LATEST}, "
+                "jsonb_array_elements(coalesce(it.body->'directives', '[]'::jsonb)) d "
+                "where d->'to'->>'role' = 'po' and d->>'state' in ('open', 'overdue') "
+                "and i.state not in ('accepted', 'cancelled', 'paused')").fetchone()[0]
+            dirs = {(k, st): n for k, st, n in c.execute(
+                f"select d->>'kind', d->>'state', count(*) {self.LATEST}, "
+                "jsonb_array_elements(coalesce(it.body->'directives', '[]'::jsonb)) d "
+                "where i.state not in ('accepted', 'cancelled') group by 1, 2").fetchall()}
+        return {"initiatives": ini, "iterations": its, "preparing": prep, "oldest_preparing_seconds": float(oldest),
+                "checks": checks, "downgraded": down, "directives": dirs, "po_waiting": po_waiting}
