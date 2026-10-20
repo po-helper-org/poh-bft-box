@@ -14,7 +14,7 @@ from . import config
 from .activities import Activities
 from .llm import OpenAIProducer
 from .metrics import WORKER_REGISTRY, timed
-from .store import PgStore
+from .store import make_store
 from .workflow import InitiativeWorkflow
 
 
@@ -29,15 +29,14 @@ def build_worker(client, producer, store, queue=None) -> Worker:
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    store = PgStore(config.DATABASE_URL)
     for attempt in range(30):   # Postgres мог ещё не подняться
         try:
-            store.init()
+            store = make_store(config.DATABASE_URL)
             break
         except Exception as e:  # noqa: BLE001
             logging.warning("Postgres не готов (%s), повтор", e)
             await asyncio.sleep(2)
-    start_http_server(int(config.env("METRICS_PORT", "9101")), registry=WORKER_REGISTRY)   # время и исходы вызовов модели
+    start_http_server(int(config.env("METRICS_PORT", "9101")), addr=config.env("METRICS_HOST", "0.0.0.0"), registry=WORKER_REGISTRY)   # время и исходы вызовов модели
     client = await Client.connect(config.TEMPORAL_ADDRESS, namespace=config.TEMPORAL_NAMESPACE)
     await build_worker(client, timed(OpenAIProducer()), store).run()
 
