@@ -37,6 +37,19 @@ BOX_TOKEN=<токен hermes из BOX_TOKENS> python scripts/smoke.py   # бри
 Память (замер на этом стеке): postgres ≈ 140 МБ, temporal ≈ 60–400 МБ, воркер и MCP по ≈ 60 МБ; лимиты заданы в compose.
 Корпоративное (шаблоны команд, замечания ревью, свои проверки) — вне репозитория: `CHECKS_FILE`, `PROMPTS_DIR`.
 
+## Без Docker (сервер под systemd --user)
+
+Если у пользователя нет docker (нет прав или compose), коробка ставится одним скриптом без sudo: Temporal — dev-сервер на SQLite
+(`temporal server start-dev`), данные коробки — SQLite (`DATABASE_URL=sqlite:///путь/box.db`), процессы — юниты пользователя
+`poh-bft-temporal`, `poh-bft-worker`, `poh-bft-mcp` с лимитами памяти. Токены создаются один раз и не печатаются.
+
+```bash
+bash deploy/native/install.sh --llm-base http://127.0.0.1:8642/p/bft-ai/v1 --llm-key-file ~/.config/…/key --no-json-mode
+```
+
+`LLM_API_KEY_FILE` — ключ модели из файла (читается на каждый вызов, ключ можно сменить без рестарта); `LLM_JSON_MODE=0` — не слать
+`response_format`, если шлюз его не знает. В compose по-прежнему Postgres.
+
 ## Как коробка не выпускает непроработанное
 
 Модель предлагает пакет, светофор и указания. Всё, что проверяется кодом, проверяется кодом
@@ -86,7 +99,7 @@ MCP-инструменты `start`, `submit`, `get` (json или markdown), `sta
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest                      # 27 тестов: 28 эталонов контракта, проверки качества, воркфлоу на тестовом Temporal
+pytest                      # 32 теста: 28 эталонов контракта, проверки качества, воркфлоу на тестовом Temporal
 ```
 
 ## Ограничения (честно)

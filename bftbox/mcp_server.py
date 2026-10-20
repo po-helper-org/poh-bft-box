@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse
 from . import config
 from .protocol import SCHEMA_VERSION, BoxError
 from .quality import Policy
-from .store import PgStore
+from .store import make_store
 
 log = logging.getLogger("bftbox")
 _box = None
@@ -27,8 +27,7 @@ async def box():
     if _box is None:
         from temporalio.client import Client
         from .service import Box
-        store = PgStore(config.DATABASE_URL)
-        store.init()
+        store = make_store(config.DATABASE_URL)
         client = await Client.connect(config.TEMPORAL_ADDRESS, namespace=config.TEMPORAL_NAMESPACE)
         _box = Box(client, store, Policy.load(), config.admins())
     return _box
@@ -136,7 +135,7 @@ def build_app() -> FastMCP:
         from starlette.responses import Response
         from .metrics import render, store_registry
         try:
-            body = render(store_registry(PgStore(config.DATABASE_URL)))
+            body = render(store_registry(make_store(config.DATABASE_URL)))
         except Exception:  # noqa: BLE001
             log.exception("метрики")
             return Response("хранилище недоступно", status_code=503)
@@ -155,4 +154,4 @@ async def _async(v):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    build_app().run(transport="http", host="0.0.0.0", port=int(config.env("PORT", "8700")))
+    build_app().run(transport="http", host=config.env("HOST", "0.0.0.0"), port=int(config.env("PORT", "8700")))
